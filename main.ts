@@ -16,10 +16,15 @@ const DEFAULT_SETTINGS: BookmarkSettings = {
 
 export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	settings: BookmarkSettings = DEFAULT_SETTINGS;
+	private ribbonIcons: Record<string, HTMLElement> = {};
 
 	async onload() {
 		await this.loadSettings();
 		this.registerCommands();
+		this.initializeRibbonIcons();
+		this.registerWorkspaceEvents();
+		const activeFile = this.app.workspace.getActiveFile();
+		this.updateRibbonVisibility(activeFile);
 	}
 
 	onunload() {
@@ -55,6 +60,35 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		}
 	}
 
+	private initializeRibbonIcons() {
+		for (let slot = 1; slot <= 9; slot++) {
+			const slotKey = slot.toString();
+
+			const iconEl = this.addRibbonIcon(
+				'bookmark',
+				`Jump to bookmark ${slot}`,
+				() => {
+					void this.goToBookmark(slotKey);
+				},
+			);
+
+			iconEl.addClass('bookmark-line-ribbon-icon');
+			iconEl.setAttr('data-bookmark-slot', slotKey);
+			iconEl.style.position = 'relative';
+
+			const badge = iconEl.createSpan({ text: slotKey });
+			badge.addClass('bookmark-line-ribbon-number');
+			badge.style.position = 'absolute';
+			badge.style.bottom = '2px';
+			badge.style.right = '4px';
+			badge.style.fontSize = '0.75em';
+			badge.style.fontWeight = 'bold';
+
+			iconEl.style.display = 'none';
+			this.ribbonIcons[slotKey] = iconEl;
+		}
+	}
+
 	private async setBookmark(slot: string, editor: Editor, view: MarkdownView) {
 		const file = view.file;
 		if (!file) {
@@ -71,6 +105,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		await this.saveSettings();
 		new Notice(`Bookmark ${slot} saved.`);
+		this.updateRibbonVisibility(file);
 	}
 
 	private async goToBookmark(slot: string) {
@@ -90,6 +125,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		const leaf = this.app.workspace.getLeaf(false);
 		await leaf.openFile(target);
+		this.updateRibbonVisibility(target);
 
 		const markdownView = leaf.view instanceof MarkdownView
 			? leaf.view
@@ -109,6 +145,24 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		editor.setCursor(position);
 		editor.scrollIntoView({ from: position, to: position }, true);
+	}
+
+	private registerWorkspaceEvents() {
+		this.registerEvent(
+			this.app.workspace.on('file-open', (file) => {
+				this.updateRibbonVisibility(file);
+			}),
+		);
+	}
+
+	private updateRibbonVisibility(file: TFile | null | undefined) {
+		const activePath = file?.path ?? '';
+
+		for (const [slot, iconEl] of Object.entries(this.ribbonIcons)) {
+			const bookmark = this.settings.bookmarks[slot];
+			const shouldShow = !!bookmark && bookmark.file === activePath;
+			iconEl.style.display = shouldShow ? '' : 'none';
+		}
 	}
 
 	private async loadSettings() {
