@@ -32,6 +32,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	private bookmarkViews = new Set<BookmarkListView>();
 	private lineHighlights = new WeakMap<Editor, Map<number, Set<string>>>();
 	private lastHighlightedEditor: Editor | null = null;
+	private editorChangeTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -254,15 +255,16 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	}
 
 	private applyLineHighlights(editor: Editor, file: TFile) {
-		const addLineClass = (editor as any).addLineClass as
-			| ((line: number, location: string, className: string) => void)
-			| undefined;
-		const removeLineClass = (editor as any).removeLineClass as
-			| ((line: number, location: string, className: string) => void)
-			| undefined;
-
-		if (!addLineClass || !removeLineClass) {
-			return;
+		// Access the CodeMirror editor view through the editor's internal structure
+		const cmEditor = (editor as any).cm;
+		if (!cmEditor) {
+			// Try alternative access path
+			const view = (editor as any).view;
+			if (!view) {
+				console.warn('Could not access CodeMirror editor instance');
+				return;
+			}
+			return this.applyLineHighlightsViaDOM(editor, file, view);
 		}
 
 		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
@@ -279,45 +281,166 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Try CodeMirror 5 API (older Obsidian versions)
+		if (typeof cmEditor.addLineClass === 'function') {
+			const lineCount = editor.lineCount();
+			const lineMap = new Map<number, Set<string>>();
+
+			for (const [slot, entry] of bookmarks) {
+				const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
+
+				let slotsForLine = lineMap.get(safeLine);
+				if (!slotsForLine) {
+					slotsForLine = new Set<string>();
+					lineMap.set(safeLine, slotsForLine);
+					cmEditor.addLineClass(safeLine, 'wrap', 'bookmark-line-highlight');
+				}
+
+				cmEditor.addLineClass(safeLine, 'wrap', this.slotHighlightClass(slot));
+				slotsForLine.add(slot);
+			}
+
+			this.lineHighlights.set(editor, lineMap);
+			this.lastHighlightedEditor = editor;
+			return;
+		}
+
+		// Fallback to DOM manipulation for CodeMirror 6
+		this.applyLineHighlightsViaDOM(editor, file, cmEditor);
+	}
+
+	private applyLineHighlightsViaDOM(editor: Editor, file: TFile, cmEditor: any) {
+		// Find the editor's DOM container - try multiple access paths
+		let editorEl: HTMLElement | null = null;
+		
+		// Try accessing through the view
+		if (cmEditor?.dom) {
+			editorEl = cmEditor.dom;
+		} else if (cmEditor?.contentDOM) {
+			editorEl = cmEditor.contentDOM.parentElement;
+		} else if ((editor as any).containerEl) {
+			editorEl = (editor as any).containerEl;
+		} else {
+			// Try to find the editor container in the active view
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (view) {
+				const editorContainer = (view as any).editorEl ?? (view as any).editor?.containerEl;
+				if (editorContainer) {
+					editorEl = editorContainer;
+				}
+			}
+		}
+
+		if (!editorEl) {
+			console.warn('Could not find editor DOM element. Available:', {
+				cmEditor: !!cmEditor,
+				hasView: !!this.app.workspace.getActiveViewOfType(MarkdownView),
+			});
+			return;
+		}
+
+		// Clear existing highlights first
+		this.clearLineHighlightsViaDOM(editorEl);
+
+		const bookmarks = this.getSortedBookmarks()
+			.filter(([, entry]) => entry.file === file.path);
+
+		if (!bookmarks.length) {
+			this.lastHighlightedEditor = editor;
+			return;
+		}
+
 		const lineCount = editor.lineCount();
 		const lineMap = new Map<number, Set<string>>();
 
-		for (const [slot, entry] of bookmarks) {
-			const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
+		// Wait a bit for DOM to be ready, then apply highlights
+		setTimeout(() => {
+			for (const [slot, entry] of bookmarks) {
+				const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
 
-			let slotsForLine = lineMap.get(safeLine);
-			if (!slotsForLine) {
-				slotsForLine = new Set<string>();
-				lineMap.set(safeLine, slotsForLine);
-				addLineClass.call(editor, safeLine, 'wrap', 'bookmark-line-highlight');
+				// Find the line element in the DOM
+				const lineEl = this.findLineElement(editorEl!, safeLine);
+				if (lineEl) {
+					let slotsForLine = lineMap.get(safeLine);
+					if (!slotsForLine) {
+						slotsForLine = new Set<string>();
+						lineMap.set(safeLine, slotsForLine);
+						lineEl.classList.add('bookmark-line-highlight');
+					}
+
+					lineEl.classList.add(this.slotHighlightClass(slot));
+					slotsForLine.add(slot);
+				} else {
+					console.warn(`Could not find line element for line ${safeLine}`);
+				}
 			}
 
-			addLineClass.call(editor, safeLine, 'wrap', this.slotHighlightClass(slot));
-			slotsForLine.add(slot);
+			this.lineHighlights.set(editor, lineMap);
+			this.lastHighlightedEditor = editor;
+		}, 50);
+	}
+
+	private findLineElement(container: HTMLElement, lineNumber: number): HTMLElement | null {
+		// Try CodeMirror 6 structure (.cm-line)
+		const cmLines = container.querySelectorAll('.cm-line');
+		if (cmLines.length > lineNumber) {
+			return cmLines[lineNumber] as HTMLElement;
 		}
 
-		this.lineHighlights.set(editor, lineMap);
-		this.lastHighlightedEditor = editor;
+		// Try CodeMirror 5 structure (.CodeMirror-line)
+		const codeMirrorLines = container.querySelectorAll('.CodeMirror-line');
+		if (codeMirrorLines.length > lineNumber) {
+			return codeMirrorLines[lineNumber] as HTMLElement;
+		}
+
+		// Fallback: try to find by data-line attribute
+		const lineByAttr = container.querySelector(`[data-line="${lineNumber}"]`);
+		if (lineByAttr) {
+			return lineByAttr as HTMLElement;
+		}
+
+		return null;
 	}
 
 	private clearLineHighlights(editor: Editor) {
 		const lineMap = this.lineHighlights.get(editor);
-		const removeLineClass = (editor as any).removeLineClass as
-			| ((line: number, location: string, className: string) => void)
-			| undefined;
-
-		if (!lineMap || !removeLineClass) {
+		if (!lineMap) {
 			return;
 		}
 
-		for (const [line, slots] of lineMap.entries()) {
-			removeLineClass.call(editor, line, 'wrap', 'bookmark-line-highlight');
-			for (const slot of slots) {
-				removeLineClass.call(editor, line, 'wrap', this.slotHighlightClass(slot));
+		const cmEditor = (editor as any).cm;
+		
+		// Try CodeMirror 5 API
+		if (cmEditor && typeof cmEditor.removeLineClass === 'function') {
+			for (const [line, slots] of lineMap.entries()) {
+				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
+				for (const slot of slots) {
+					cmEditor.removeLineClass(line, 'wrap', this.slotHighlightClass(slot));
+				}
 			}
+			this.lineHighlights.delete(editor);
+			return;
+		}
+
+		// Fallback to DOM manipulation
+		const view = (editor as any).view;
+		const editorEl = cmEditor?.dom ?? cmEditor?.contentDOM ?? view?.dom ?? (editor as any).containerEl;
+		if (editorEl) {
+			this.clearLineHighlightsViaDOM(editorEl);
 		}
 
 		this.lineHighlights.delete(editor);
+	}
+
+	private clearLineHighlightsViaDOM(container: HTMLElement) {
+		// Remove all bookmark highlight classes from all lines
+		const highlightedLines = container.querySelectorAll('.bookmark-line-highlight');
+		for (const line of Array.from(highlightedLines)) {
+			line.classList.remove('bookmark-line-highlight');
+			for (let i = 1; i <= 9; i++) {
+				line.classList.remove(this.slotHighlightClass(i.toString()));
+			}
+		}
 	}
 
 	private slotHighlightClass(slot: string) {
