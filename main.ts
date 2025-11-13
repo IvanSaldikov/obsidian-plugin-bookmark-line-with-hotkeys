@@ -2,6 +2,7 @@ import {
 	Editor,
 	ItemView,
 	MarkdownView,
+	MarkdownFileInfo,
 	Notice,
 	Plugin,
 	TAbstractFile,
@@ -29,6 +30,8 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	settings: BookmarkSettings = DEFAULT_SETTINGS;
 	private styleEl: HTMLStyleElement | null = null;
 	private bookmarkViews = new Set<BookmarkListView>();
+	private lineHighlights = new WeakMap<Editor, Map<number, Set<string>>>();
+	private lastHighlightedEditor: Editor | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -41,11 +44,17 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		this.app.workspace.onLayoutReady(() => {
 			void this.activateBookmarkView(false);
 			this.notifyBookmarkViews();
+			this.refreshEditorHighlights();
 		});
 	}
 
 	onunload() {
 		this.app.workspace.detachLeavesOfType(VIEW_TYPE_BOOKMARKS);
+
+		if (this.lastHighlightedEditor) {
+			this.clearLineHighlights(this.lastHighlightedEditor);
+			this.lastHighlightedEditor = null;
+		}
 
 		if (this.styleEl?.parentElement) {
 			this.styleEl.parentElement.removeChild(this.styleEl);
@@ -106,6 +115,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		await this.saveSettings();
 		new Notice(`Bookmark ${slot} saved.`);
+		this.refreshEditorHighlights();
 		this.notifyBookmarkViews();
 	}
 
@@ -145,13 +155,32 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		editor.setCursor(position);
 		editor.scrollIntoView({ from: position, to: position }, true);
+		this.refreshEditorHighlights();
 		this.notifyBookmarkViews();
 	}
 
 	private registerWorkspaceEvents() {
 		this.registerEvent(
 			this.app.workspace.on('file-open', () => {
+				this.refreshEditorHighlights();
 				this.notifyBookmarkViews();
+			}),
+		);
+
+		this.registerEvent(
+			this.app.workspace.on('editor-change', (editor, info) => {
+				const file = info instanceof MarkdownView
+					? info.file
+					: (info as MarkdownFileInfo | null)?.file ?? null;
+
+				if (file instanceof TFile) {
+					this.applyLineHighlights(editor, file);
+				} else if (this.lastHighlightedEditor === editor) {
+					this.clearLineHighlights(editor);
+					if (this.lastHighlightedEditor === editor) {
+						this.lastHighlightedEditor = null;
+					}
+				}
 			}),
 		);
 
@@ -185,6 +214,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		if (changed) {
 			await this.saveSettings();
 			this.notifyBookmarkViews();
+			this.refreshEditorHighlights();
 		}
 	}
 
@@ -205,7 +235,93 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		if (changed) {
 			await this.saveSettings();
 			this.notifyBookmarkViews();
+			this.refreshEditorHighlights();
 		}
+	}
+
+	private refreshEditorHighlights() {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+
+		if (!view || !view.file) {
+			if (this.lastHighlightedEditor) {
+				this.clearLineHighlights(this.lastHighlightedEditor);
+				this.lastHighlightedEditor = null;
+			}
+			return;
+		}
+
+		this.applyLineHighlights(view.editor, view.file);
+	}
+
+	private applyLineHighlights(editor: Editor, file: TFile) {
+		const addLineClass = (editor as any).addLineClass as
+			| ((line: number, location: string, className: string) => void)
+			| undefined;
+		const removeLineClass = (editor as any).removeLineClass as
+			| ((line: number, location: string, className: string) => void)
+			| undefined;
+
+		if (!addLineClass || !removeLineClass) {
+			return;
+		}
+
+		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
+			this.clearLineHighlights(this.lastHighlightedEditor);
+		}
+
+		this.clearLineHighlights(editor);
+
+		const bookmarks = this.getSortedBookmarks()
+			.filter(([, entry]) => entry.file === file.path);
+
+		if (!bookmarks.length) {
+			this.lastHighlightedEditor = editor;
+			return;
+		}
+
+		const lineCount = editor.lineCount();
+		const lineMap = new Map<number, Set<string>>();
+
+		for (const [slot, entry] of bookmarks) {
+			const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
+
+			let slotsForLine = lineMap.get(safeLine);
+			if (!slotsForLine) {
+				slotsForLine = new Set<string>();
+				lineMap.set(safeLine, slotsForLine);
+				addLineClass.call(editor, safeLine, 'wrap', 'bookmark-line-highlight');
+			}
+
+			addLineClass.call(editor, safeLine, 'wrap', this.slotHighlightClass(slot));
+			slotsForLine.add(slot);
+		}
+
+		this.lineHighlights.set(editor, lineMap);
+		this.lastHighlightedEditor = editor;
+	}
+
+	private clearLineHighlights(editor: Editor) {
+		const lineMap = this.lineHighlights.get(editor);
+		const removeLineClass = (editor as any).removeLineClass as
+			| ((line: number, location: string, className: string) => void)
+			| undefined;
+
+		if (!lineMap || !removeLineClass) {
+			return;
+		}
+
+		for (const [line, slots] of lineMap.entries()) {
+			removeLineClass.call(editor, line, 'wrap', 'bookmark-line-highlight');
+			for (const slot of slots) {
+				removeLineClass.call(editor, line, 'wrap', this.slotHighlightClass(slot));
+			}
+		}
+
+		this.lineHighlights.delete(editor);
+	}
+
+	private slotHighlightClass(slot: string) {
+		return `bookmark-line-highlight-slot-${slot}`;
 	}
 
 	registerBookmarkView(view: BookmarkListView) {
@@ -221,6 +337,8 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		for (const view of this.bookmarkViews) {
 			view.requestRender();
 		}
+
+		this.refreshEditorHighlights();
 	}
 
 	getSortedBookmarks(): Array<[string, BookmarkEntry]> {
@@ -361,6 +479,50 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+.cm-line.bookmark-line-highlight,
+.CodeMirror-line.bookmark-line-highlight {
+	position: relative;
+	background-color: var(--background-modifier-hover);
+	border-left: 0.25em solid var(--interactive-accent);
+	border-radius: 0 6px 6px 0;
+	padding-left: 0.4em;
+}
+
+.cm-line.bookmark-line-highlight::before,
+.CodeMirror-line.bookmark-line-highlight::before {
+	content: '';
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.4em;
+	height: 1.4em;
+	margin-right: 0.45em;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 0.8em;
+	font-weight: 600;
+}
+
+.cm-line.bookmark-line-highlight-slot-1::before,
+.CodeMirror-line.bookmark-line-highlight-slot-1::before { content: '1'; }
+.cm-line.bookmark-line-highlight-slot-2::before,
+.CodeMirror-line.bookmark-line-highlight-slot-2::before { content: '2'; }
+.cm-line.bookmark-line-highlight-slot-3::before,
+.CodeMirror-line.bookmark-line-highlight-slot-3::before { content: '3'; }
+.cm-line.bookmark-line-highlight-slot-4::before,
+.CodeMirror-line.bookmark-line-highlight-slot-4::before { content: '4'; }
+.cm-line.bookmark-line-highlight-slot-5::before,
+.CodeMirror-line.bookmark-line-highlight-slot-5::before { content: '5'; }
+.cm-line.bookmark-line-highlight-slot-6::before,
+.CodeMirror-line.bookmark-line-highlight-slot-6::before { content: '6'; }
+.cm-line.bookmark-line-highlight-slot-7::before,
+.CodeMirror-line.bookmark-line-highlight-slot-7::before { content: '7'; }
+.cm-line.bookmark-line-highlight-slot-8::before,
+.CodeMirror-line.bookmark-line-highlight-slot-8::before { content: '8'; }
+.cm-line.bookmark-line-highlight-slot-9::before,
+.CodeMirror-line.bookmark-line-highlight-slot-9::before { content: '9'; }
 `;
 		document.head.appendChild(style);
 		this.styleEl = style;
