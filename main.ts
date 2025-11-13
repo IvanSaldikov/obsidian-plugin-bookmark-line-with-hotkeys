@@ -9,8 +9,39 @@ import {
 	TFile,
 	WorkspaceLeaf,
 } from 'obsidian';
+import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
+import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 
 const VIEW_TYPE_BOOKMARKS = 'bookmark-line-with-hotkeys-view';
+
+type BookmarkDecorationLineSpec = { line: number; classes: string };
+
+const setBookmarkDecorations = StateEffect.define<BookmarkDecorationLineSpec[]>();
+
+const bookmarkDecorationField = StateField.define<DecorationSet>({
+	create() {
+		return Decoration.none;
+	},
+	update(deco, tr) {
+		deco = deco.map(tr.changes);
+		for (const effect of tr.effects) {
+			if (effect.is(setBookmarkDecorations)) {
+				const builder = new RangeSetBuilder<Decoration>();
+				for (const spec of effect.value) {
+					const lineNumber = Math.max(0, Math.min(tr.state.doc.lines - 1, spec.line));
+					const lineInfo = tr.state.doc.line(lineNumber + 1);
+					const decoration = Decoration.line({ class: spec.classes });
+					builder.add(lineInfo.from, lineInfo.from, decoration);
+				}
+				deco = builder.finish();
+			}
+		}
+		return deco;
+	},
+	provide: (field) => EditorView.decorations.from(field),
+});
+
+const bookmarkDecorationExtension = [bookmarkDecorationField];
 
 interface BookmarkEntry {
 	file: string;
@@ -32,7 +63,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	private bookmarkViews = new Set<BookmarkListView>();
 	private lineHighlights = new WeakMap<Editor, Map<number, Set<string>>>();
 	private lastHighlightedEditor: Editor | null = null;
-	private editorChangeTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -242,8 +272,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 	private refreshEditorHighlights() {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-
-		if (!view || !view.file) {
+		if (!view?.file) {
 			if (this.lastHighlightedEditor) {
 				this.clearLineHighlights(this.lastHighlightedEditor);
 				this.lastHighlightedEditor = null;
@@ -252,199 +281,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		}
 
 		this.applyLineHighlights(view.editor, view.file);
-	}
-
-	private applyLineHighlights(editor: Editor, file: TFile) {
-		// Access the CodeMirror editor view through the editor's internal structure
-		const cmEditor = (editor as any).cm;
-		if (!cmEditor) {
-			// Try alternative access path
-			const view = (editor as any).view;
-			if (!view) {
-				console.warn('Could not access CodeMirror editor instance');
-				return;
-			}
-			return this.applyLineHighlightsViaDOM(editor, file, view);
-		}
-
-		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
-			this.clearLineHighlights(this.lastHighlightedEditor);
-		}
-
-		this.clearLineHighlights(editor);
-
-		const bookmarks = this.getSortedBookmarks()
-			.filter(([, entry]) => entry.file === file.path);
-
-		if (!bookmarks.length) {
-			this.lastHighlightedEditor = editor;
-			return;
-		}
-
-		// Try CodeMirror 5 API (older Obsidian versions)
-		if (typeof cmEditor.addLineClass === 'function') {
-			const lineCount = editor.lineCount();
-			const lineMap = new Map<number, Set<string>>();
-
-			for (const [slot, entry] of bookmarks) {
-				const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
-
-				let slotsForLine = lineMap.get(safeLine);
-				if (!slotsForLine) {
-					slotsForLine = new Set<string>();
-					lineMap.set(safeLine, slotsForLine);
-					cmEditor.addLineClass(safeLine, 'wrap', 'bookmark-line-highlight');
-				}
-
-				cmEditor.addLineClass(safeLine, 'wrap', this.slotHighlightClass(slot));
-				slotsForLine.add(slot);
-			}
-
-			this.lineHighlights.set(editor, lineMap);
-			this.lastHighlightedEditor = editor;
-			return;
-		}
-
-		// Fallback to DOM manipulation for CodeMirror 6
-		this.applyLineHighlightsViaDOM(editor, file, cmEditor);
-	}
-
-	private applyLineHighlightsViaDOM(editor: Editor, file: TFile, cmEditor: any) {
-		// Find the editor's DOM container - try multiple access paths
-		let editorEl: HTMLElement | null = null;
-		
-		// Try accessing through the view
-		if (cmEditor?.dom) {
-			editorEl = cmEditor.dom;
-		} else if (cmEditor?.contentDOM) {
-			editorEl = cmEditor.contentDOM.parentElement;
-		} else if ((editor as any).containerEl) {
-			editorEl = (editor as any).containerEl;
-		} else {
-			// Try to find the editor container in the active view
-			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (view) {
-				const editorContainer = (view as any).editorEl ?? (view as any).editor?.containerEl;
-				if (editorContainer) {
-					editorEl = editorContainer;
-				}
-			}
-		}
-
-		if (!editorEl) {
-			console.warn('Could not find editor DOM element. Available:', {
-				cmEditor: !!cmEditor,
-				hasView: !!this.app.workspace.getActiveViewOfType(MarkdownView),
-			});
-			return;
-		}
-
-		// Clear existing highlights first
-		this.clearLineHighlightsViaDOM(editorEl);
-
-		const bookmarks = this.getSortedBookmarks()
-			.filter(([, entry]) => entry.file === file.path);
-
-		if (!bookmarks.length) {
-			this.lastHighlightedEditor = editor;
-			return;
-		}
-
-		const lineCount = editor.lineCount();
-		const lineMap = new Map<number, Set<string>>();
-
-		// Wait a bit for DOM to be ready, then apply highlights
-		setTimeout(() => {
-			for (const [slot, entry] of bookmarks) {
-				const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
-
-				// Find the line element in the DOM
-				const lineEl = this.findLineElement(editorEl!, safeLine);
-				if (lineEl) {
-					let slotsForLine = lineMap.get(safeLine);
-					if (!slotsForLine) {
-						slotsForLine = new Set<string>();
-						lineMap.set(safeLine, slotsForLine);
-						lineEl.classList.add('bookmark-line-highlight');
-					}
-
-					lineEl.classList.add(this.slotHighlightClass(slot));
-					slotsForLine.add(slot);
-				} else {
-					console.warn(`Could not find line element for line ${safeLine}`);
-				}
-			}
-
-			this.lineHighlights.set(editor, lineMap);
-			this.lastHighlightedEditor = editor;
-		}, 50);
-	}
-
-	private findLineElement(container: HTMLElement, lineNumber: number): HTMLElement | null {
-		// Try CodeMirror 6 structure (.cm-line)
-		const cmLines = container.querySelectorAll('.cm-line');
-		if (cmLines.length > lineNumber) {
-			return cmLines[lineNumber] as HTMLElement;
-		}
-
-		// Try CodeMirror 5 structure (.CodeMirror-line)
-		const codeMirrorLines = container.querySelectorAll('.CodeMirror-line');
-		if (codeMirrorLines.length > lineNumber) {
-			return codeMirrorLines[lineNumber] as HTMLElement;
-		}
-
-		// Fallback: try to find by data-line attribute
-		const lineByAttr = container.querySelector(`[data-line="${lineNumber}"]`);
-		if (lineByAttr) {
-			return lineByAttr as HTMLElement;
-		}
-
-		return null;
-	}
-
-	private clearLineHighlights(editor: Editor) {
-		const lineMap = this.lineHighlights.get(editor);
-		if (!lineMap) {
-			return;
-		}
-
-		const cmEditor = (editor as any).cm;
-		
-		// Try CodeMirror 5 API
-		if (cmEditor && typeof cmEditor.removeLineClass === 'function') {
-			for (const [line, slots] of lineMap.entries()) {
-				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
-				for (const slot of slots) {
-					cmEditor.removeLineClass(line, 'wrap', this.slotHighlightClass(slot));
-				}
-			}
-			this.lineHighlights.delete(editor);
-			return;
-		}
-
-		// Fallback to DOM manipulation
-		const view = (editor as any).view;
-		const editorEl = cmEditor?.dom ?? cmEditor?.contentDOM ?? view?.dom ?? (editor as any).containerEl;
-		if (editorEl) {
-			this.clearLineHighlightsViaDOM(editorEl);
-		}
-
-		this.lineHighlights.delete(editor);
-	}
-
-	private clearLineHighlightsViaDOM(container: HTMLElement) {
-		// Remove all bookmark highlight classes from all lines
-		const highlightedLines = container.querySelectorAll('.bookmark-line-highlight');
-		for (const line of Array.from(highlightedLines)) {
-			line.classList.remove('bookmark-line-highlight');
-			for (let i = 1; i <= 9; i++) {
-				line.classList.remove(this.slotHighlightClass(i.toString()));
-			}
-		}
-	}
-
-	private slotHighlightClass(slot: string) {
-		return `bookmark-line-highlight-slot-${slot}`;
 	}
 
 	registerBookmarkView(view: BookmarkListView) {
@@ -462,6 +298,138 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		}
 
 		this.refreshEditorHighlights();
+	}
+
+	private applyLineHighlights(editor: Editor, file: TFile) {
+		const cmEditor = (editor as any).cm;
+		const previousLineMap = this.lineHighlights.get(editor) ?? new Map<number, Set<string>>();
+
+		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
+			this.clearLineHighlights(this.lastHighlightedEditor);
+		}
+
+		const bookmarks = this.getSortedBookmarks()
+			.filter(([, entry]) => entry.file === file.path);
+
+		if (!cmEditor) {
+			this.lineHighlights.delete(editor);
+			return;
+		}
+
+		if (!bookmarks.length) {
+			this.clearLineHighlights(editor);
+			this.lastHighlightedEditor = editor;
+			return;
+		}
+
+		const lineCount = editor.lineCount();
+		const lineMap = new Map<number, Set<string>>();
+
+		for (const [slot, entry] of bookmarks) {
+			const safeLine = Math.min(Math.max(entry.line, 0), Math.max(lineCount - 1, 0));
+			let slotsForLine = lineMap.get(safeLine);
+			if (!slotsForLine) {
+				slotsForLine = new Set<string>();
+				lineMap.set(safeLine, slotsForLine);
+			}
+			slotsForLine.add(slot);
+		}
+
+		if (typeof cmEditor.addLineClass === 'function') {
+			this.applyLineHighlightsCM5(cmEditor, lineMap, previousLineMap);
+		} else if (cmEditor instanceof EditorView) {
+			this.applyLineHighlightsCM6(cmEditor, lineMap);
+		}
+
+		this.lineHighlights.set(editor, lineMap);
+		this.lastHighlightedEditor = editor;
+	}
+
+	private applyLineHighlightsCM5(
+		cmEditor: any,
+		lineMap: Map<number, Set<string>>,
+		previousLineMap: Map<number, Set<string>>,
+	) {
+		for (const [line, slots] of lineMap.entries()) {
+			if (!previousLineMap.has(line)) {
+				cmEditor.addLineClass(line, 'wrap', 'bookmark-line-highlight');
+			}
+
+			const previousSlots = previousLineMap.get(line) ?? new Set<string>();
+			for (const slot of slots) {
+				if (!previousSlots.has(slot)) {
+					cmEditor.addLineClass(line, 'wrap', this.slotHighlightClass(slot));
+				}
+			}
+		}
+
+		for (const [line, slots] of previousLineMap.entries()) {
+			const nextSlots = lineMap.get(line);
+			if (!nextSlots) {
+				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
+				for (const slot of slots) {
+					cmEditor.removeLineClass(line, 'wrap', this.slotHighlightClass(slot));
+				}
+				continue;
+			}
+
+			for (const slot of slots) {
+				if (!nextSlots.has(slot)) {
+					cmEditor.removeLineClass(line, 'wrap', this.slotHighlightClass(slot));
+				}
+			}
+
+			if (nextSlots.size === 0) {
+				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
+			}
+		}
+	}
+
+	private applyLineHighlightsCM6(view: EditorView, lineMap: Map<number, Set<string>>) {
+		this.ensureBookmarkDecorationExtension(view);
+
+		const specs: BookmarkDecorationLineSpec[] = [];
+		for (const [line, slots] of lineMap.entries()) {
+			const classes = ['bookmark-line-highlight', ...Array.from(slots).map((slot) => this.slotHighlightClass(slot))];
+			specs.push({ line, classes: classes.join(' ') });
+		}
+
+		view.dispatch({
+			effects: setBookmarkDecorations.of(specs),
+		});
+	}
+
+	private ensureBookmarkDecorationExtension(view: EditorView) {
+		if (!view.state.field(bookmarkDecorationField, false)) {
+			view.dispatch({
+				effects: StateEffect.appendConfig.of(bookmarkDecorationExtension),
+			});
+		}
+	}
+
+	private clearLineHighlights(editor: Editor) {
+		const lineMap = this.lineHighlights.get(editor);
+		const cmEditor = (editor as any).cm;
+
+		if (cmEditor && typeof cmEditor.removeLineClass === 'function' && lineMap) {
+			for (const [line, slots] of lineMap.entries()) {
+				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
+				for (const slot of slots) {
+					cmEditor.removeLineClass(line, 'wrap', this.slotHighlightClass(slot));
+				}
+			}
+		} else if (cmEditor instanceof EditorView) {
+			this.ensureBookmarkDecorationExtension(cmEditor);
+			cmEditor.dispatch({
+				effects: setBookmarkDecorations.of([]),
+			});
+		}
+
+		this.lineHighlights.delete(editor);
+	}
+
+	private slotHighlightClass(slot: string) {
+		return `bookmark-line-highlight-slot-${slot}`;
 	}
 
 	getSortedBookmarks(): Array<[string, BookmarkEntry]> {
