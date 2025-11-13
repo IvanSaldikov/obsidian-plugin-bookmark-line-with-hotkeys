@@ -390,11 +390,13 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	private applyLineHighlightsCM6(view: EditorView, lineMap: Map<number, Set<string>>) {
 		this.ensureBookmarkDecorationExtension(view);
 
-		const specs: BookmarkDecorationLineSpec[] = [];
-		for (const [line, slots] of lineMap.entries()) {
-			const classes = ['bookmark-line-highlight', ...Array.from(slots).map((slot) => this.slotHighlightClass(slot))];
-			specs.push({ line, classes: classes.join(' ') });
-		}
+		const specs: BookmarkDecorationLineSpec[] = Array.from(lineMap.entries())
+			.sort((a, b) => a[0] - b[0])
+			.map(([line, slots]) => {
+				const slotClasses = Array.from(slots).sort().map((slot) => this.slotHighlightClass(slot));
+				const classes = ['bookmark-line-highlight', ...slotClasses].join(' ');
+				return { line, classes };
+			});
 
 		view.dispatch({
 			effects: setBookmarkDecorations.of(specs),
