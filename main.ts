@@ -1,4 +1,15 @@
-import { Editor, MarkdownView, Notice, Plugin, TFile } from 'obsidian';
+import {
+	Editor,
+	ItemView,
+	MarkdownView,
+	Notice,
+	Plugin,
+	TAbstractFile,
+	TFile,
+	WorkspaceLeaf,
+} from 'obsidian';
+
+const VIEW_TYPE_BOOKMARKS = 'bookmark-line-with-hotkeys-view';
 
 interface BookmarkEntry {
 	file: string;
@@ -16,19 +27,30 @@ const DEFAULT_SETTINGS: BookmarkSettings = {
 
 export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	settings: BookmarkSettings = DEFAULT_SETTINGS;
-	private ribbonIcons: Record<string, HTMLElement> = {};
+	private styleEl: HTMLStyleElement | null = null;
+	private bookmarkViews = new Set<BookmarkListView>();
 
 	async onload() {
 		await this.loadSettings();
+		this.injectStyles();
+
+		this.registerView(VIEW_TYPE_BOOKMARKS, (leaf) => new BookmarkListView(leaf, this));
 		this.registerCommands();
-		this.initializeRibbonIcons();
 		this.registerWorkspaceEvents();
-		const activeFile = this.app.workspace.getActiveFile();
-		this.updateRibbonVisibility(activeFile);
+
+		this.app.workspace.onLayoutReady(() => {
+			void this.activateBookmarkView(false);
+			this.notifyBookmarkViews();
+		});
 	}
 
 	onunload() {
-		// Nothing to clean up beyond registered commands
+		this.app.workspace.detachLeavesOfType(VIEW_TYPE_BOOKMARKS);
+
+		if (this.styleEl?.parentElement) {
+			this.styleEl.parentElement.removeChild(this.styleEl);
+		}
+		this.styleEl = null;
 	}
 
 	private registerCommands() {
@@ -58,35 +80,14 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 				},
 			});
 		}
-	}
 
-	private initializeRibbonIcons() {
-		for (let slot = 1; slot <= 9; slot++) {
-			const slotKey = slot.toString();
-
-			const iconEl = this.addRibbonIcon(
-				'bookmark',
-				`Jump to bookmark ${slot}`,
-				() => {
-					void this.goToBookmark(slotKey);
-				},
-			);
-
-			iconEl.addClass('bookmark-line-ribbon-icon');
-			iconEl.setAttr('data-bookmark-slot', slotKey);
-			iconEl.style.position = 'relative';
-
-			const badge = iconEl.createSpan({ text: slotKey });
-			badge.addClass('bookmark-line-ribbon-number');
-			badge.style.position = 'absolute';
-			badge.style.bottom = '2px';
-			badge.style.right = '4px';
-			badge.style.fontSize = '0.75em';
-			badge.style.fontWeight = 'bold';
-
-			iconEl.style.display = 'none';
-			this.ribbonIcons[slotKey] = iconEl;
-		}
+		this.addCommand({
+			id: 'show-bookmark-list',
+			name: 'Show bookmark list',
+			callback: () => {
+				void this.activateBookmarkView(true);
+			},
+		});
 	}
 
 	private async setBookmark(slot: string, editor: Editor, view: MarkdownView) {
@@ -105,10 +106,10 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		await this.saveSettings();
 		new Notice(`Bookmark ${slot} saved.`);
-		this.updateRibbonVisibility(file);
+		this.notifyBookmarkViews();
 	}
 
-	private async goToBookmark(slot: string) {
+	async goToBookmark(slot: string) {
 		const bookmark = this.settings.bookmarks[slot];
 
 		if (!bookmark) {
@@ -125,7 +126,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		const leaf = this.app.workspace.getLeaf(false);
 		await leaf.openFile(target);
-		this.updateRibbonVisibility(target);
 
 		const markdownView = leaf.view instanceof MarkdownView
 			? leaf.view
@@ -145,24 +145,225 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		editor.setCursor(position);
 		editor.scrollIntoView({ from: position, to: position }, true);
+		this.notifyBookmarkViews();
 	}
 
 	private registerWorkspaceEvents() {
 		this.registerEvent(
-			this.app.workspace.on('file-open', (file) => {
-				this.updateRibbonVisibility(file);
+			this.app.workspace.on('file-open', () => {
+				this.notifyBookmarkViews();
+			}),
+		);
+
+		this.registerEvent(
+			this.app.vault.on('rename', (file, oldPath) => {
+				void this.handleFileRename(file, oldPath);
+			}),
+		);
+
+		this.registerEvent(
+			this.app.vault.on('delete', (file) => {
+				void this.handleFileDelete(file);
 			}),
 		);
 	}
 
-	private updateRibbonVisibility(file: TFile | null | undefined) {
-		const activePath = file?.path ?? '';
-
-		for (const [slot, iconEl] of Object.entries(this.ribbonIcons)) {
-			const bookmark = this.settings.bookmarks[slot];
-			const shouldShow = !!bookmark && bookmark.file === activePath;
-			iconEl.style.display = shouldShow ? '' : 'none';
+	private async handleFileRename(file: TAbstractFile, oldPath: string) {
+		if (!(file instanceof TFile)) {
+			return;
 		}
+
+		let changed = false;
+
+		for (const bookmark of Object.values(this.settings.bookmarks)) {
+			if (bookmark.file === oldPath) {
+				bookmark.file = file.path;
+				changed = true;
+			}
+		}
+
+		if (changed) {
+			await this.saveSettings();
+			this.notifyBookmarkViews();
+		}
+	}
+
+	private async handleFileDelete(file: TAbstractFile) {
+		if (!(file instanceof TFile)) {
+			return;
+		}
+
+		let changed = false;
+
+		for (const [slot, bookmark] of Object.entries(this.settings.bookmarks)) {
+			if (bookmark.file === file.path) {
+				delete this.settings.bookmarks[slot];
+				changed = true;
+			}
+		}
+
+		if (changed) {
+			await this.saveSettings();
+			this.notifyBookmarkViews();
+		}
+	}
+
+	registerBookmarkView(view: BookmarkListView) {
+		this.bookmarkViews.add(view);
+		view.requestRender();
+	}
+
+	unregisterBookmarkView(view: BookmarkListView) {
+		this.bookmarkViews.delete(view);
+	}
+
+	notifyBookmarkViews() {
+		for (const view of this.bookmarkViews) {
+			view.requestRender();
+		}
+	}
+
+	getSortedBookmarks(): Array<[string, BookmarkEntry]> {
+		return Object.entries(this.settings.bookmarks)
+			.sort((a, b) => Number(a[0]) - Number(b[0]));
+	}
+
+	async getBookmarkPreview(entry: BookmarkEntry): Promise<string | null> {
+		const abstractFile = this.app.vault.getAbstractFileByPath(entry.file);
+
+		if (!(abstractFile instanceof TFile)) {
+			return null;
+		}
+
+		try {
+			const content = await this.app.vault.cachedRead(abstractFile);
+			const lines = content.split(/\r?\n/);
+			const line = lines[entry.line];
+			return line?.trim() ?? '';
+		} catch (error) {
+			console.error('Failed to read file for bookmark preview', error);
+			return null;
+		}
+	}
+
+	async activateBookmarkView(reveal: boolean) {
+		const workspace = this.app.workspace;
+		const leaves = workspace.getLeavesOfType(VIEW_TYPE_BOOKMARKS);
+		let leaf = leaves.length > 0 ? leaves[0] : undefined;
+
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
+			if (!leaf) {
+				return;
+			}
+
+			await leaf.setViewState({
+				type: VIEW_TYPE_BOOKMARKS,
+				active: reveal,
+			});
+		}
+
+		if (reveal) {
+			workspace.revealLeaf(leaf);
+		}
+	}
+
+	private injectStyles() {
+		const style = document.createElement('style');
+		style.id = 'bookmark-line-with-hotkeys-styles';
+		style.textContent = `
+.bookmark-line-with-hotkeys-view {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-list-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-list-header h2 {
+	margin: 0;
+	font-size: var(--font-ui-large);
+	font-weight: 600;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-empty {
+	color: var(--text-muted);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+	cursor: pointer;
+	background-color: var(--background-primary);
+	transition: background-color 0.15s ease;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item:hover {
+	background-color: var(--background-primary-alt);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.is-active {
+	border-color: var(--interactive-accent);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.is-missing {
+	opacity: 0.7;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-slot {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.6em;
+	height: 1.6em;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 600;
+	font-size: 0.9em;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-file {
+	font-weight: 600;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-position {
+	margin-left: auto;
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-preview {
+	font-size: 0.9em;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+`;
+		document.head.appendChild(style);
+		this.styleEl = style;
 	}
 
 	private async loadSettings() {
@@ -176,3 +377,113 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 }
+
+class BookmarkListView extends ItemView {
+	private renderPromise: Promise<void> | null = null;
+
+	constructor(leaf: WorkspaceLeaf, private plugin: BookmarkLineWithHotkeysPlugin) {
+		super(leaf);
+	}
+
+	getViewType() {
+		return VIEW_TYPE_BOOKMARKS;
+	}
+
+	getDisplayText() {
+		return 'Line Bookmarks';
+	}
+
+	getIcon() {
+		return 'bookmark';
+	}
+
+	async onOpen() {
+		this.containerEl.addClass('bookmark-line-with-hotkeys-view');
+		this.plugin.registerBookmarkView(this);
+	}
+
+	async onClose() {
+		this.containerEl.removeClass('bookmark-line-with-hotkeys-view');
+		this.plugin.unregisterBookmarkView(this);
+	}
+
+	requestRender() {
+		if (!this.renderPromise) {
+			this.renderPromise = this.render();
+			this.renderPromise.finally(() => {
+				this.renderPromise = null;
+			}).catch(() => {
+				this.renderPromise = null;
+			});
+		}
+
+		return this.renderPromise;
+	}
+
+	private async render() {
+		const container = this.containerEl;
+		container.empty();
+
+		const header = container.createDiv({ cls: 'bookmark-list-header' });
+		header.createEl('h2', { text: 'Line Bookmarks' });
+
+		const bookmarks = this.plugin.getSortedBookmarks();
+
+		if (!bookmarks.length) {
+			container.createDiv({
+				cls: 'bookmark-empty',
+				text: 'No bookmarks yet. Use Mod+Shift+1..9 to save one.',
+			});
+			return;
+		}
+
+		const listEl = container.createDiv({ cls: 'bookmark-list' });
+		const activeFile = this.plugin.app.workspace.getActiveFile();
+
+		for (const [slot, bookmark] of bookmarks) {
+			const itemEl = listEl.createDiv({ cls: 'bookmark-item' });
+
+			const file = this.plugin.app.vault.getAbstractFileByPath(bookmark.file);
+
+			if (!(file instanceof TFile)) {
+				itemEl.addClass('is-missing');
+				const headerRow = itemEl.createDiv({ cls: 'bookmark-item-header' });
+				headerRow.createDiv({ cls: 'bookmark-item-slot', text: slot });
+				headerRow.createDiv({ cls: 'bookmark-item-file', text: bookmark.file });
+				itemEl.createDiv({
+					cls: 'bookmark-item-preview',
+					text: 'File not found',
+				});
+				itemEl.onClickEvent(() => {
+					new Notice(`File for bookmark ${slot} is missing.`);
+				});
+				continue;
+			}
+
+			if (activeFile?.path === bookmark.file) {
+				itemEl.addClass('is-active');
+			}
+
+			const headerRow = itemEl.createDiv({ cls: 'bookmark-item-header' });
+			headerRow.createDiv({ cls: 'bookmark-item-slot', text: slot });
+			headerRow.createDiv({ cls: 'bookmark-item-file', text: file.basename });
+			headerRow.createDiv({
+				cls: 'bookmark-item-position',
+				text: `Line ${bookmark.line + 1}`,
+			});
+
+			const preview = await this.plugin.getBookmarkPreview(bookmark);
+			if (preview !== null) {
+				itemEl.createDiv({
+					cls: 'bookmark-item-preview',
+					text: preview || '(blank line)',
+				});
+			}
+
+			itemEl.onClickEvent(() => {
+				void this.plugin.goToBookmark(slot);
+			});
+		}
+	}
+}
+
