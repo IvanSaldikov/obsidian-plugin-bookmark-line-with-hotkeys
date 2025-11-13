@@ -244,8 +244,8 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		if (changed) {
 			await this.saveSettings();
-			this.notifyBookmarkViews();
 			this.refreshEditorHighlights();
+			this.notifyBookmarkViews();
 		}
 	}
 
@@ -265,8 +265,8 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 		if (changed) {
 			await this.saveSettings();
-			this.notifyBookmarkViews();
 			this.refreshEditorHighlights();
+			this.notifyBookmarkViews();
 		}
 	}
 
@@ -280,7 +280,11 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		this.applyLineHighlights(view.editor, view.file);
+		try {
+			this.applyLineHighlights(view.editor, view.file);
+		} catch (error) {
+			console.error('Failed to apply bookmark highlights', error);
+		}
 	}
 
 	registerBookmarkView(view: BookmarkListView) {
@@ -296,8 +300,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		for (const view of this.bookmarkViews) {
 			view.requestRender();
 		}
-
-		this.refreshEditorHighlights();
 	}
 
 	private applyLineHighlights(editor: Editor, file: TFile) {
