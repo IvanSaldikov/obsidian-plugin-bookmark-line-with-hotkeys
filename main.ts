@@ -1,9 +1,11 @@
 import {
+	App,
 	Editor,
 	ItemView,
 	MarkdownView,
 	MarkdownFileInfo,
 	Notice,
+	Modal,
 	Plugin,
 	TAbstractFile,
 	TFile,
@@ -141,7 +143,12 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		const existing = this.settings.bookmarks[slot];
 		const cursor = editor.getCursor();
 
-		if (existing && existing.file === file.path) {
+		if (existing && existing.file === file.path && existing.line === cursor.line && existing.ch === cursor.ch) {
+			const confirmed = await this.confirmBookmarkRemoval(slot);
+			if (!confirmed) {
+				return;
+			}
+
 			delete this.settings.bookmarks[slot];
 			await this.saveSettings();
 			new Notice(`Bookmark ${slot} removed.`);
@@ -157,19 +164,26 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		};
 
 		await this.saveSettings();
-		new Notice(`Bookmark ${slot} saved.`);
+		new Notice(existing ? `Bookmark ${slot} updated.` : `Bookmark ${slot} saved.`);
 		this.refreshEditorHighlights();
 		this.notifyBookmarkViews();
 	}
 
 	async removeBookmark(slot: string) {
-		if (this.settings.bookmarks[slot]) {
-			delete this.settings.bookmarks[slot];
-			await this.saveSettings();
-			new Notice(`Bookmark ${slot} removed.`);
-			this.refreshEditorHighlights();
-			this.notifyBookmarkViews();
+		if (!this.settings.bookmarks[slot]) {
+			return;
 		}
+
+		const confirmed = await this.confirmBookmarkRemoval(slot);
+		if (!confirmed) {
+			return;
+		}
+
+		delete this.settings.bookmarks[slot];
+		await this.saveSettings();
+		new Notice(`Bookmark ${slot} removed.`);
+		this.refreshEditorHighlights();
+		this.notifyBookmarkViews();
 	}
 
 	async goToBookmark(slot: string) {
@@ -470,6 +484,12 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		return `bookmark-line-highlight-slot-${slot}`;
 	}
 
+	private async confirmBookmarkRemoval(slot: string): Promise<boolean> {
+		return await new Promise((resolve) => {
+			new ConfirmBookmarkRemovalModal(this.app, slot, resolve).open();
+		});
+	}
+
 	getSortedBookmarks(): Array<[string, BookmarkEntry]> {
 		return Object.entries(this.settings.bookmarks)
 			.sort((a, b) => Number(a[0]) - Number(b[0]));
@@ -634,9 +654,9 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 .CodeMirror-line.bookmark-line-highlight {
 	position: relative;
 	background-color: var(--background-modifier-hover);
-	border-left: 0.25em solid var(--interactive-accent);
+	border-left: 0.15em solid var(--interactive-accent);
 	border-radius: 0 6px 6px 0;
-	padding-left: 0.4em;
+	padding: 0 0.25em 0 0.25em !important;
 }
 
 .cm-line.bookmark-line-highlight::before,
@@ -811,3 +831,38 @@ class BookmarkListView extends ItemView {
 	}
 }
 
+class ConfirmBookmarkRemovalModal extends Modal {
+	constructor(app: App, private slot: string, private resolve: (confirmed: boolean) => void) {
+		super(app);
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h3', { text: 'Remove bookmark?' });
+		contentEl.createEl('p', { text: `Do you want to remove bookmark ${this.slot}?` });
+
+		const buttonBar = contentEl.createDiv({ cls: 'modal-button-container' });
+
+		const cancelButton = buttonBar.createEl('button', { text: 'Cancel' });
+		cancelButton.addEventListener('click', () => {
+			this.resolve(false);
+			this.close();
+		});
+
+		const confirmButton = buttonBar.createEl('button', {
+			text: 'Remove',
+			cls: 'mod-warning',
+		});
+		confirmButton.addEventListener('click', () => {
+			this.resolve(true);
+			this.close();
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
