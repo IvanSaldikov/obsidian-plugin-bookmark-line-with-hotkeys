@@ -141,7 +141,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		const existing = this.settings.bookmarks[slot];
 		const cursor = editor.getCursor();
 
-		if (existing && existing.file === file.path && existing.line === cursor.line && existing.ch === cursor.ch) {
+		if (existing && existing.file === file.path) {
 			delete this.settings.bookmarks[slot];
 			await this.saveSettings();
 			new Notice(`Bookmark ${slot} removed.`);
