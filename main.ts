@@ -162,6 +162,16 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		this.notifyBookmarkViews();
 	}
 
+	async removeBookmark(slot: string) {
+		if (this.settings.bookmarks[slot]) {
+			delete this.settings.bookmarks[slot];
+			await this.saveSettings();
+			new Notice(`Bookmark ${slot} removed.`);
+			this.refreshEditorHighlights();
+			this.notifyBookmarkViews();
+		}
+	}
+
 	async goToBookmark(slot: string) {
 		const bookmark = this.settings.bookmarks[slot];
 
@@ -545,12 +555,15 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-2-2);
-	cursor: pointer;
 	background-color: var(--background-primary);
 	transition: background-color 0.15s ease;
 }
 
-.bookmark-line-with-hotkeys-view .bookmark-item:hover {
+.bookmark-line-with-hotkeys-view .bookmark-item.clickable {
+	cursor: pointer;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.clickable:hover {
 	background-color: var(--background-primary-alt);
 }
 
@@ -589,6 +602,24 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	margin-left: auto;
 	color: var(--text-muted);
 	font-size: 0.9em;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-remove {
+	width: 1.4em;
+	height: 1.4em;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-remove:hover {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
 }
 
 .bookmark-line-with-hotkeys-view .bookmark-item-preview {
@@ -722,7 +753,7 @@ class BookmarkListView extends ItemView {
 		const activeFile = this.plugin.app.workspace.getActiveFile();
 
 		for (const [slot, bookmark] of bookmarks) {
-			const itemEl = listEl.createDiv({ cls: 'bookmark-item' });
+			const itemEl = listEl.createDiv({ cls: 'bookmark-item clickable' });
 
 			const file = this.plugin.app.vault.getAbstractFileByPath(bookmark.file);
 
@@ -748,6 +779,18 @@ class BookmarkListView extends ItemView {
 			const headerRow = itemEl.createDiv({ cls: 'bookmark-item-header' });
 			headerRow.createDiv({ cls: 'bookmark-item-slot', text: slot });
 			headerRow.createDiv({ cls: 'bookmark-item-file', text: file.basename });
+
+			const removeButton = headerRow.createEl('button', {
+				cls: 'bookmark-item-remove',
+				text: '×',
+				attr: { 'aria-label': `Remove bookmark ${slot}` },
+			});
+
+			removeButton.addEventListener('click', (event) => {
+				event.stopPropagation();
+				void this.plugin.removeBookmark(slot);
+			});
+
 			headerRow.createDiv({
 				cls: 'bookmark-item-position',
 				text: `Line ${bookmark.line + 1}`,
