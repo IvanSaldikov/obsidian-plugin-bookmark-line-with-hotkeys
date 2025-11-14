@@ -115,7 +115,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			this.addCommand({
 				id: `jump-to-bookmark-${slot}`,
 				name: `Jump to bookmark ${slot}`,
-				hotkeys: [{ modifiers: ['Mod', 'Alt'], key: slotKey }],
+				hotkeys: [{ modifiers: ['Mod'], key: slotKey }],
 				callback: () => {
 					void this.goToBookmark(slotKey);
 				},
@@ -138,7 +138,18 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		const existing = this.settings.bookmarks[slot];
 		const cursor = editor.getCursor();
+
+		if (existing && existing.file === file.path && existing.line === cursor.line && existing.ch === cursor.ch) {
+			delete this.settings.bookmarks[slot];
+			await this.saveSettings();
+			new Notice(`Bookmark ${slot} removed.`);
+			this.refreshEditorHighlights();
+			this.notifyBookmarkViews();
+			return;
+		}
+
 		this.settings.bookmarks[slot] = {
 			file: file.path,
 			line: cursor.line,
