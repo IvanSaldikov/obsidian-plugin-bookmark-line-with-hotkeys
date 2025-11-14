@@ -316,7 +316,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	}
 
 	private applyLineHighlights(editor: Editor, file: TFile) {
-		const cmEditor = (editor as any).cm;
+		const cmEditor = (editor as any).cm ?? (editor as any).view;
 		const previousLineMap = this.lineHighlights.get(editor) ?? new Map<number, Set<string>>();
 
 		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
