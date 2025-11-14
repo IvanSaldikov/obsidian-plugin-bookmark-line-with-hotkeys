@@ -76,6 +76,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			void this.activateBookmarkView(false);
 			this.notifyBookmarkViews();
 			this.refreshEditorHighlights();
+			window.setTimeout(() => this.refreshEditorHighlights(), 0);
 		});
 	}
 
@@ -211,6 +212,18 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 					if (this.lastHighlightedEditor === editor) {
 						this.lastHighlightedEditor = null;
 					}
+				}
+			}),
+		);
+
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', (leaf) => {
+				const view = leaf?.view instanceof MarkdownView
+					? leaf.view
+					: this.app.workspace.getActiveViewOfType(MarkdownView);
+
+				if (view?.file) {
+					this.applyLineHighlights(view.editor, view.file);
 				}
 			}),
 		);
