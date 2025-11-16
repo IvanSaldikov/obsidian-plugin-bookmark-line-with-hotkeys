@@ -13,3 +13,5 @@ What it does:
 By using Ctrl + <1..9> set up the bookmarks in any line of a file and move across all of your bookmarks with these.
 
 Right panel includes the list of the Bookmarks.
+
+**Please overwrite the old key binding in the Obsidian Settings**
