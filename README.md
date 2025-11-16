@@ -1,7 +1,7 @@
 # Obsidian Plugin: Bookmark Line with Hotkeys
 
 ## What it does:
-By using `Shift + Ctrl + <1..9>` set up the bookmarks on any line of a file and jump between them with `Ctrls + <1..9>`.
+By using `Shift + Ctrl + <1..9>` set up the bookmarks on any line of a file and jump between them with `Ctrl + <1..9>`.
 
 Right panel includes the list of the Line-Bookmarks.
 
