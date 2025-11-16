@@ -1,8 +1,154 @@
-/*
+.bookmark-line-with-hotkeys-view {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.bookmark-line-with-hotkeys-view .bookmark-list-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
 
-If your plugin does not need CSS, delete this file.
+.bookmark-line-with-hotkeys-view .bookmark-list-header h2 {
+	margin: 0;
+	font-size: var(--font-ui-large);
+	font-weight: 600;
+}
 
-*/
+.bookmark-line-with-hotkeys-view .bookmark-empty {
+	color: var(--text-muted);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+	background-color: var(--background-primary);
+	transition: background-color 0.15s ease;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.clickable {
+	cursor: pointer;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.clickable:hover {
+	background-color: var(--background-primary-alt);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.is-active {
+	border-color: var(--interactive-accent);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item.is-missing {
+	opacity: 0.7;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-slot {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.6em;
+	height: 1.6em;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 600;
+	font-size: 0.9em;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-file {
+	font-weight: 600;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-position {
+	margin-left: auto;
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-remove {
+	width: 1.4em;
+	height: 1.4em;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-remove:hover {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.bookmark-line-with-hotkeys-view .bookmark-item-preview {
+	font-size: 0.9em;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.cm-line.bookmark-line-highlight,
+.CodeMirror-line.bookmark-line-highlight {
+	position: relative;
+	background-color: var(--background-modifier-hover);
+	border-left: 0.15em solid var(--interactive-accent);
+	border-radius: 0 6px 6px 0;
+	padding: 0 0.25em 0 0.25em !important;
+}
+
+.cm-line.bookmark-line-highlight::before,
+.CodeMirror-line.bookmark-line-highlight::before {
+	content: '';
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.4em;
+	height: 1.4em;
+	margin-right: 0.45em;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 0.8em;
+	font-weight: 600;
+}
+
+.cm-line.bookmark-line-highlight-slot-1::before,
+.CodeMirror-line.bookmark-line-highlight-slot-1::before { content: '1'; }
+.cm-line.bookmark-line-highlight-slot-2::before,
+.CodeMirror-line.bookmark-line-highlight-slot-2::before { content: '2'; }
+.cm-line.bookmark-line-highlight-slot-3::before,
+.CodeMirror-line.bookmark-line-highlight-slot-3::before { content: '3'; }
+.cm-line.bookmark-line-highlight-slot-4::before,
+.CodeMirror-line.bookmark-line-highlight-slot-4::before { content: '4'; }
+.cm-line.bookmark-line-highlight-slot-5::before,
+.CodeMirror-line.bookmark-line-highlight-slot-5::before { content: '5'; }
+.cm-line.bookmark-line-highlight-slot-6::before,
+.CodeMirror-line.bookmark-line-highlight-slot-6::before { content: '6'; }
+.cm-line.bookmark-line-highlight-slot-7::before,
+.CodeMirror-line.bookmark-line-highlight-slot-7::before { content: '7'; }
+.cm-line.bookmark-line-highlight-slot-8::before,
+.CodeMirror-line.bookmark-line-highlight-slot-8::before { content: '8'; }
+.cm-line.bookmark-line-highlight-slot-9::before,
+.CodeMirror-line.bookmark-line-highlight-slot-9::before { content: '9'; }
