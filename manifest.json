@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "bookmark-line-with-hotkeys",
+	"name": "Bookmark Line with Hotkeys",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"minAppVersion": "0.21.0",
+	"description": "Bookmark a line with hotkeys.",
+	"author": "IvanSaldikov",
+	"authorUrl": "https://github.com/IvanSaldikov/",
+	"fundingUrl": "https://github.com/sponsors/IvanSaldikov",
+	"isDesktopOnly": true
 }
