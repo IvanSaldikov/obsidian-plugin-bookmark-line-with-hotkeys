@@ -1,11 +1,12 @@
 # Obsidian Plugin: Bookmark Line with Hotkeys
 
-### Inspired by PyCharm (JetBrains IDE)
-
-What it does:
-By using `Ctrl + <1..9>` set up the bookmarks on any line of a file and move across all of your bookmarks with these.
+## What it does:
+By using `Shift + Ctrl + <1..9>` set up the bookmarks on any line of a file and jump between them with `Ctrls + <1..9>`.
 
 Right panel includes the list of the Line-Bookmarks.
+
+Inspired by PyCharm (JetBrains IDE)!
+
 
 ## Keybinding setup
 
@@ -20,6 +21,9 @@ Right panel includes the list of the Line-Bookmarks.
 > Tip: The plugin toggles a bookmark when you set the same slot twice in the same place. You can quickly clear a bookmark either from the sidebar “×” button or by pressing its slot shortcut again on the same line.
 
 PS: I truly believe that if you have set Line-Bookmarks you don't need old Ctrl + <1..9> bindings for the tabs switching. Cheers ❤️
+
+
+## Thanks!
 
 Author: "IvanSaldikov"
 AuthorUrl: https://github.com/IvanSaldikov/
