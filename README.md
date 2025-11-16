@@ -19,8 +19,8 @@ Right panel includes the list of the Line-Bookmarks.
 1. Open **Settings → Hotkeys**.
 2. Search for “Bookmark Line with Hotkeys”.
 3. Reassign the hotkeys you want:
-   - Set `Ctrl + Shift + <1..9>` (or another shortcut you prefer) for **Set bookmark \<n\>**.
-   - Set `Ctrl + <1..9>` for **Jump to bookmark \<n\>**.
+   - Set `Ctrl + Shift + <1..9>` (or another shortcut you prefer) for **Set bookmark <n>** (n is a number).
+   - Set `Ctrl + <1..9>` for **Jump to bookmark <n>** (n is a number).
 4. Obsidian warns if a shortcut is already in use—choose “Overwrite” or pick an alternative if you rely on the existing binding.
 5. Repeat for each slot you plan to use.
 
