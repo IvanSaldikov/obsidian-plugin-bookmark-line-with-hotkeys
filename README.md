@@ -1,7 +1,7 @@
 # Obsidian Plugin: Bookmark Line with Hotkeys
 
 version: 1.0.0
-author: "IvanSaldikov
+author: "IvanSaldikov"
 authorUrl: https://github.com/IvanSaldikov/
 fundingUrl: https://github.com/sponsors/IvanSaldikov
 
