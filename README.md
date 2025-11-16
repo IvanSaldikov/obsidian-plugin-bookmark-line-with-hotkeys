@@ -30,6 +30,6 @@ Cheers ❤️
 
 Author: "IvanSaldikov"
 
-AuthorUrl: https://github.com/IvanSaldikov/
+Github: https://github.com/IvanSaldikov/
 
-FundingUrl: https://github.com/sponsors/IvanSaldikov
+Funding: https://github.com/sponsors/IvanSaldikov
