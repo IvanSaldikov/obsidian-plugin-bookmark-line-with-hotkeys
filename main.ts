@@ -64,6 +64,11 @@ type LegacyCodeMirrorEditor = {
 	removeLineClass(line: number, where: 'wrap', className: string): void;
 };
 
+type EditorWithCodeMirror = Editor & {
+	cm?: LegacyCodeMirrorEditor;
+	view?: EditorView;
+};
+
 function isLegacyCodeMirrorEditor(value: unknown): value is LegacyCodeMirrorEditor {
 	return !!value
 		&& typeof (value as LegacyCodeMirrorEditor).addLineClass === 'function'
@@ -209,7 +214,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			: this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (!markdownView) {
-			new Notice('Could not open a markdown editor for this bookmark.');
+			new Notice('Could not open markdown editor for this bookmark.');
 			return;
 		}
 
@@ -337,7 +342,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 	registerBookmarkView(view: BookmarkListView) {
 		this.bookmarkViews.add(view);
-		view.requestRender();
+		void view.requestRender();
 	}
 
 	unregisterBookmarkView(view: BookmarkListView) {
@@ -346,12 +351,13 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 	notifyBookmarkViews() {
 		for (const view of this.bookmarkViews) {
-			view.requestRender();
+			void view.requestRender();
 		}
 	}
 
 	private applyLineHighlights(editor: Editor, file: TFile) {
-		const cmEditor = (editor as any).cm ?? (editor as any).view;
+		const editorWithCM = editor as EditorWithCodeMirror;
+		const cmEditor = editorWithCM.cm ?? editorWithCM.view;
 		const previousLineMap = this.lineHighlights.get(editor) ?? new Map<number, Set<string>>();
 
 		if (this.lastHighlightedEditor && this.lastHighlightedEditor !== editor) {
@@ -461,9 +467,10 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 
 	private clearLineHighlights(editor: Editor) {
 		const lineMap = this.lineHighlights.get(editor);
-		const cmEditor = (editor as any).cm;
+		const editorWithCM = editor as EditorWithCodeMirror;
+		const cmEditor = editorWithCM.cm ?? editorWithCM.view;
 
-		if (cmEditor && typeof cmEditor.removeLineClass === 'function' && lineMap) {
+		if (cmEditor && isLegacyCodeMirrorEditor(cmEditor) && lineMap) {
 			for (const [line, slots] of lineMap.entries()) {
 				cmEditor.removeLineClass(line, 'wrap', 'bookmark-line-highlight');
 				for (const slot of slots) {
@@ -531,7 +538,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		}
 
 		if (reveal) {
-			workspace.revealLeaf(leaf);
+			void workspace.revealLeaf(leaf);
 		}
 	}
 
