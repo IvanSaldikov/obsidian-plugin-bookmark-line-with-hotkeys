@@ -11,6 +11,10 @@
 	"keywords": [],
 	"author": "",
 	"license": "MIT",
+	"dependencies": {
+		"@codemirror/state": "^6.2.0",
+		"@codemirror/view": "^6.23.0"
+	},
 	"devDependencies": {
 		"@types/node": "^16.11.6",
 		"@typescript-eslint/eslint-plugin": "5.29.0",

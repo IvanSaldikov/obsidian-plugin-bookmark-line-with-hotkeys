@@ -12,7 +12,7 @@ import {
 	WorkspaceLeaf,
 } from 'obsidian';
 import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
-import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { Extension, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 
 const VIEW_TYPE_BOOKMARKS = 'bookmark-line-with-hotkeys-view';
 
@@ -43,7 +43,7 @@ const bookmarkDecorationField = StateField.define<DecorationSet>({
 	provide: (field) => EditorView.decorations.from(field),
 });
 
-const bookmarkDecorationExtension = [bookmarkDecorationField];
+const bookmarkDecorationExtension: Extension = bookmarkDecorationField;
 
 interface BookmarkEntry {
 	file: string;
@@ -59,16 +59,25 @@ const DEFAULT_SETTINGS: BookmarkSettings = {
 	bookmarks: {},
 };
 
+type LegacyCodeMirrorEditor = {
+	addLineClass(line: number, where: 'wrap', className: string): void;
+	removeLineClass(line: number, where: 'wrap', className: string): void;
+};
+
+function isLegacyCodeMirrorEditor(value: unknown): value is LegacyCodeMirrorEditor {
+	return !!value
+		&& typeof (value as LegacyCodeMirrorEditor).addLineClass === 'function'
+		&& typeof (value as LegacyCodeMirrorEditor).removeLineClass === 'function';
+}
+
 export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	settings: BookmarkSettings = DEFAULT_SETTINGS;
-	private styleEl: HTMLStyleElement | null = null;
 	private bookmarkViews = new Set<BookmarkListView>();
 	private lineHighlights = new WeakMap<Editor, Map<number, Set<string>>>();
 	private lastHighlightedEditor: Editor | null = null;
 
 	async onload() {
 		await this.loadSettings();
-		this.injectStyles();
 
 		this.registerView(VIEW_TYPE_BOOKMARKS, (leaf) => new BookmarkListView(leaf, this));
 		this.registerCommands();
@@ -83,17 +92,10 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	}
 
 	onunload() {
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_BOOKMARKS);
-
 		if (this.lastHighlightedEditor) {
 			this.clearLineHighlights(this.lastHighlightedEditor);
 			this.lastHighlightedEditor = null;
 		}
-
-		if (this.styleEl?.parentElement) {
-			this.styleEl.parentElement.removeChild(this.styleEl);
-		}
-		this.styleEl = null;
 	}
 
 	private registerCommands() {
@@ -103,7 +105,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			this.addCommand({
 				id: `set-bookmark-${slot}`,
 				name: `Set bookmark ${slot}`,
-				hotkeys: [{ modifiers: ['Mod', 'Shift'], key: slotKey }],
 				editorCallback: (editor: Editor, view: MarkdownView) => {
 					if (!view?.file) {
 						new Notice('No active file to bookmark.');
@@ -117,7 +118,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			this.addCommand({
 				id: `jump-to-bookmark-${slot}`,
 				name: `Jump to bookmark ${slot}`,
-				hotkeys: [{ modifiers: ['Mod'], key: slotKey }],
 				callback: () => {
 					void this.goToBookmark(slotKey);
 				},
@@ -385,7 +385,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			slotsForLine.add(slot);
 		}
 
-		if (typeof cmEditor.addLineClass === 'function') {
+		if (isLegacyCodeMirrorEditor(cmEditor)) {
 			this.applyLineHighlightsCM5(cmEditor, lineMap, previousLineMap);
 		} else if (cmEditor instanceof EditorView) {
 			this.applyLineHighlightsCM6(cmEditor, lineMap);
@@ -396,7 +396,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	}
 
 	private applyLineHighlightsCM5(
-		cmEditor: any,
+		cmEditor: LegacyCodeMirrorEditor,
 		lineMap: Map<number, Set<string>>,
 		previousLineMap: Map<number, Set<string>>,
 	) {
@@ -485,7 +485,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 	}
 
 	private async confirmBookmarkRemoval(slot: string): Promise<boolean> {
-		return await new Promise((resolve) => {
+		return new Promise((resolve) => {
 			new ConfirmBookmarkRemovalModal(this.app, slot, resolve).open();
 		});
 	}
@@ -535,169 +535,6 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 		}
 	}
 
-	private injectStyles() {
-		const style = document.createElement('style');
-		style.id = 'bookmark-line-with-hotkeys-styles';
-		style.textContent = `
-.bookmark-line-with-hotkeys-view {
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-4-2);
-	padding: var(--size-4-3);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-list-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-list-header h2 {
-	margin: 0;
-	font-size: var(--font-ui-large);
-	font-weight: 600;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-empty {
-	color: var(--text-muted);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-list {
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-4-2);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item {
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	padding: var(--size-4-3);
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-2-2);
-	background-color: var(--background-primary);
-	transition: background-color 0.15s ease;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item.clickable {
-	cursor: pointer;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item.clickable:hover {
-	background-color: var(--background-primary-alt);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item.is-active {
-	border-color: var(--interactive-accent);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item.is-missing {
-	opacity: 0.7;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-header {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-2);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-slot {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 1.6em;
-	height: 1.6em;
-	border-radius: 999px;
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
-	font-weight: 600;
-	font-size: 0.9em;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-file {
-	font-weight: 600;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-position {
-	margin-left: auto;
-	color: var(--text-muted);
-	font-size: 0.9em;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-remove {
-	width: 1.4em;
-	height: 1.4em;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999px;
-	background: transparent;
-	color: var(--text-muted);
-	cursor: pointer;
-	transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-remove:hover {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
-}
-
-.bookmark-line-with-hotkeys-view .bookmark-item-preview {
-	font-size: 0.9em;
-	color: var(--text-muted);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.cm-line.bookmark-line-highlight,
-.CodeMirror-line.bookmark-line-highlight {
-	position: relative;
-	background-color: var(--background-modifier-hover);
-	border-left: 0.15em solid var(--interactive-accent);
-	border-radius: 0 6px 6px 0;
-	padding: 0 0.25em 0 0.25em !important;
-}
-
-.cm-line.bookmark-line-highlight::before,
-.CodeMirror-line.bookmark-line-highlight::before {
-	content: '';
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 1.4em;
-	height: 1.4em;
-	margin-right: 0.45em;
-	border-radius: 999px;
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
-	font-size: 0.8em;
-	font-weight: 600;
-}
-
-.cm-line.bookmark-line-highlight-slot-1::before,
-.CodeMirror-line.bookmark-line-highlight-slot-1::before { content: '1'; }
-.cm-line.bookmark-line-highlight-slot-2::before,
-.CodeMirror-line.bookmark-line-highlight-slot-2::before { content: '2'; }
-.cm-line.bookmark-line-highlight-slot-3::before,
-.CodeMirror-line.bookmark-line-highlight-slot-3::before { content: '3'; }
-.cm-line.bookmark-line-highlight-slot-4::before,
-.CodeMirror-line.bookmark-line-highlight-slot-4::before { content: '4'; }
-.cm-line.bookmark-line-highlight-slot-5::before,
-.CodeMirror-line.bookmark-line-highlight-slot-5::before { content: '5'; }
-.cm-line.bookmark-line-highlight-slot-6::before,
-.CodeMirror-line.bookmark-line-highlight-slot-6::before { content: '6'; }
-.cm-line.bookmark-line-highlight-slot-7::before,
-.CodeMirror-line.bookmark-line-highlight-slot-7::before { content: '7'; }
-.cm-line.bookmark-line-highlight-slot-8::before,
-.CodeMirror-line.bookmark-line-highlight-slot-8::before { content: '8'; }
-.cm-line.bookmark-line-highlight-slot-9::before,
-.CodeMirror-line.bookmark-line-highlight-slot-9::before { content: '9'; }
-`;
-		document.head.appendChild(style);
-		this.styleEl = style;
-	}
-
 	private async loadSettings() {
 		const data = (await this.loadData()) as Partial<BookmarkSettings> | null;
 		this.settings = {
@@ -722,7 +559,7 @@ class BookmarkListView extends ItemView {
 	}
 
 	getDisplayText() {
-		return 'Line Bookmarks';
+		return 'Line bookmarks';
 	}
 
 	getIcon() {
@@ -757,7 +594,7 @@ class BookmarkListView extends ItemView {
 		container.empty();
 
 		const header = container.createDiv({ cls: 'bookmark-list-header' });
-		header.createEl('h2', { text: 'Line Bookmarks' });
+		header.createEl('h2', { text: 'Line bookmarks' });
 
 		const bookmarks = this.plugin.getSortedBookmarks();
 
