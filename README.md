@@ -20,10 +20,13 @@ Inspired by PyCharm (JetBrains IDE)!
 
 > Tip: The plugin toggles a bookmark when you set the same slot twice in the same place. You can quickly clear a bookmark either from the sidebar “×” button or by pressing its slot shortcut again on the same line.
 
-PS: I truly believe that if you have set Line-Bookmarks you don't need old Ctrl + <1..9> bindings for the tabs switching. Cheers ❤️
+PS: I truly believe that if you have set Line-Bookmarks you don't need old Ctrl + <1..9> bindings for the tabs switching.
+
+Cheers ❤️
 
 
-## Thanks!
+
+## Thank you for the support
 
 Author: "IvanSaldikov"
 
