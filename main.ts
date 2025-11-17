@@ -214,7 +214,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			: this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (!markdownView) {
-			new Notice('Could not open markdown editor for this bookmark');  // skip eslint required by Notice
+			new Notice('Could not open Markdown editor for this bookmark.');
 			return;
 		}
 
