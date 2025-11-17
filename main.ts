@@ -214,7 +214,7 @@ export default class BookmarkLineWithHotkeysPlugin extends Plugin {
 			: this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (!markdownView) {
-			new Notice('Could not open markdown editor for this bookmark.');
+			new Notice('Could not open markdown editor for this bookmark');  // skip eslint required by Notice
 			return;
 		}
 
@@ -573,12 +573,12 @@ class BookmarkListView extends ItemView {
 		return 'bookmark';
 	}
 
-	async onOpen() {
+	async onOpen() { // skip eslint required by ItemView
 		this.containerEl.addClass('bookmark-line-with-hotkeys-view');
 		this.plugin.registerBookmarkView(this);
 	}
 
-	async onClose() {
+	async onClose() { // skip eslint required by ItemView
 		this.containerEl.removeClass('bookmark-line-with-hotkeys-view');
 		this.plugin.unregisterBookmarkView(this);
 	}
